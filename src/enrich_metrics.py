@@ -34,13 +34,35 @@ def add_basic_columns(df: pd.DataFrame) -> pd.DataFrame:
         return "Unknown"
     df["gas_context"] = df["chain"].apply(classify_gas)
 
-    # net_yield_after_gas heuristic
-    def est_net_yield(row):
-        total = row["total_apy"]
-        if row["gas_context"] == "High gas" and total < 8:
+    from .fetch_gas import get_eth_gas_gwei
+
+def est_net_yield(row):
+    total = row["total_apy"] or 0
+    gas_context = row.get("gas_context", "")
+    gas_gwei = get_eth_gas_gwei()
+
+    # Default heuristic if no live data
+    if gas_gwei is None:
+        if gas_context == "High gas" and total < 8:
             return 0.5
         return total
-    df["net_yield_after_gas"] = df.apply(est_net_yield, axis=1)
+
+    # Use live gas
+    if gas_context == "High gas":
+        # adjust yield penalty based on gas range
+        if gas_gwei > 100:
+            penalty = 0.9
+        elif gas_gwei > 50:
+            penalty = 0.6
+        elif gas_gwei > 25:
+            penalty = 0.3
+        else:
+            penalty = 0.15
+        return max(total - penalty * total, 0.2)
+
+    # cheaper chains - minimal penalty
+    return total
+
 
     # il_risk heuristic
     def guess_il(symbol: str):
