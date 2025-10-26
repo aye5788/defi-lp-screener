@@ -19,8 +19,10 @@ st.caption("Not financial advice. Yield != safety. High APY often means high ris
 df_raw = get_yield_data()
 
 if df_raw is None or df_raw.empty:
-    st.error("No data returned from DeFiLlama.")
-    st.stop()
+    st.warning("⚠️ No data loaded from DeFiLlama (API may be rate-limited or temporarily unavailable). Showing empty table.")
+else:
+    st.info(f"✅ Loaded {len(df_raw)} pools from DeFiLlama.")
+
 
 # 2. Derive metrics (total_apy, il_risk, gas_context, etc.)
 df_enriched = add_basic_columns(df_raw)
