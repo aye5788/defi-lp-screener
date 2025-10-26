@@ -120,24 +120,34 @@ def est_net_yield(row):
 
 
 from .snapshots import compute_tvl_trend_7d, save_today_snapshot
+import pandas as pd
 
-def add_trend_columns_and_snapshot(df: pd.DataFrame) -> pd.DataFrame:
+def add_trend_columns_and_snapshot(df) -> pd.DataFrame:
     """
+    - Ensure df is a DataFrame
     - Save today's snapshot to data/snapshots/YYYY-MM-DD.csv
     - Compute tvl_trend_7d using recent snapshots
+    - Always return a DataFrame with a tvl_trend_7d column
     """
-    # save snapshot for historical tracking
+    # Guard: if upstream gave us None, make an empty frame
+    if df is None or not isinstance(df, pd.DataFrame):
+        safe_df = pd.DataFrame()
+        safe_df["tvl_trend_7d"] = "—"
+        return safe_df
+
+    # Try to save a snapshot (best effort)
     try:
         save_today_snapshot(df)
-    except Exception:
-        # don't crash dashboard if write fails on hosted env
-        pass
+    except Exception as e:
+        print(f"[trend] snapshot save failed: {e}")
 
-    # compute tvl_trend_7d
+    # Try to compute 7d trend (best effort)
     try:
         df_with_trend = compute_tvl_trend_7d(df)
+        # compute_tvl_trend_7d returns a copy, so just return that
         return df_with_trend
-    except Exception:
+    except Exception as e:
+        print(f"[trend] compute_tvl_trend_7d failed: {e}")
         df = df.copy()
         df["tvl_trend_7d"] = "—"
         return df
