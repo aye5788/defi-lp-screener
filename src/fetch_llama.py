@@ -21,15 +21,25 @@ def get_yield_data():
     - rewardTokens (what's paying incentives)
     - pool (unique pool id string)
     """
-    resp = requests.get(LLAMA_YIELDS_URL, timeout=30)
-    resp.raise_for_status()
-    data = resp.json()
+    try:
+        resp = requests.get(LLAMA_YIELDS_URL, timeout=30)
+        resp.raise_for_status()
+        data = resp.json()
+        pools = data.get("data", [])
+        df = pd.DataFrame(pools)
+    except Exception as e:
+        # Fallback on any network / parsing issue: return empty but valid frame
+        print(f"[fetch_llama] Error fetching data: {e}")
+        df = pd.DataFrame([], columns=[
+            "project",
+            "chain",
+            "symbol",
+            "tvlUsd",
+            "apyBase",
+            "apyReward",
+            "rewardTokens",
+            "pool",
+        ])
 
-    # DeFiLlama returns { "status": "...", "data": [ {...}, {...} ] }
-    pools = data.get("data", [])
-
-    df = pd.DataFrame(pools)
-
-    # Some cleaning / renaming we'll likely want later:
-    # We'll do most enrichment in enrich_metrics.py, not here.
+    # Guarantee we return a DataFrame, never None
     return df
