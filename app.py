@@ -113,10 +113,11 @@ if hide_red_flag:
 # RENAME COLUMNS FOR DISPLAY
 # -------------------------
 
-# columns we plan to show
 display_cols_raw = [
     "pool_name",            # <symbol> | <project> | <chain>
     "tvlUsd",               # TVL
+    "volume_24h_usd",       # NEW: only populated for some pools (Uniswap v3 for now)
+    "vol_to_tvl",           # NEW: capital efficiency
     "fee_apy",              # from apyBase
     "reward_apy",           # from apyReward
     "total_apy",            # fee_apy + reward_apy
@@ -128,9 +129,12 @@ display_cols_raw = [
     "red_flag",             # ⚠ or ""
 ]
 
+
 nice_names = {
     "pool_name": "Pool",
     "tvlUsd": "TVL ($)",
+    "volume_24h_usd": "Vol 24h ($)",
+    "vol_to_tvl": "Vol/TVL (24h)",
     "fee_apy": "Fee APY (%)",
     "reward_apy": "Reward APY (%)",
     "total_apy": "Total APY (%)",
