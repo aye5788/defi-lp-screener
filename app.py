@@ -2,7 +2,7 @@ import streamlit as st
 import pandas as pd
 
 from src.fetch_llama import get_yield_data
-from src.enrich_metrics import add_basic_columns, add_placeholder_trend_columns
+from src.enrich_metrics import add_basic_columns, add_trend_columns_and_snapshot
 from src.risk_flags import apply_risk_flags
 from src.formatting import format_for_display
 from src import config
@@ -24,7 +24,8 @@ if df_raw is None or df_raw.empty:
 
 # 2. Derive metrics (total_apy, il_risk, gas_context, etc.)
 df_enriched = add_basic_columns(df_raw)
-df_enriched = add_placeholder_trend_columns(df_enriched)
+df_enriched = add_trend_columns_and_snapshot(df_enriched)
+
 
 # 3. Add audit_status + red_flag
 df_scored = apply_risk_flags(df_enriched)
