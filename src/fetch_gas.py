@@ -1,25 +1,24 @@
 # fetch_gas.py
-# Pulls gas price info so we can estimate cost to LP.
-# NOTE: You'll need to provide ETHERSCAN_API_KEY via env or streamlit secrets
-# before this will return real data.
+# Pulls live Ethereum gas price data using Etherscan.
+# Now uses Streamlit secrets for secure key storage.
 
-import os
+import streamlit as st
 import requests
 
 ETHERSCAN_URL = "https://api.etherscan.io/api"
 
 def get_eth_gas_gwei():
     """
-    Returns average gas price (gwei) from Etherscan.
-    If no API key or call fails, returns None.
+    Returns current gas price (Gwei) from Etherscan Gas Oracle API.
+    Falls back to None if API is unavailable or key missing.
     """
-    api_key = os.getenv("ETHERSCAN_API_KEY")
-    if not api_key:
-        # We'll just gracefully degrade
+    try:
+        api_key = st.secrets["general"]["ETHERSCAN_API_KEY"]
+    except Exception:
         return None
 
     try:
-        resp = requests.get(
+        response = requests.get(
             ETHERSCAN_URL,
             params={
                 "module": "gastracker",
@@ -28,13 +27,12 @@ def get_eth_gas_gwei():
             },
             timeout=15,
         )
-        resp.raise_for_status()
-        data = resp.json()
+        response.raise_for_status()
+        data = response.json()
         result = data.get("result", {})
-        # 'ProposeGasPrice' is in gwei
         gwei = result.get("ProposeGasPrice")
-        if gwei is None:
-            return None
-        return float(gwei)
+        if gwei:
+            return float(gwei)
+        return None
     except Exception:
         return None
