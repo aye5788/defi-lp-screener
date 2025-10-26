@@ -97,10 +97,26 @@ def add_basic_columns(df: pd.DataFrame) -> pd.DataFrame:
     return df
 
 
-def add_placeholder_trend_columns(df: pd.DataFrame) -> pd.DataFrame:
+from .snapshots import compute_tvl_trend_7d, save_today_snapshot
+
+def add_trend_columns_and_snapshot(df: pd.DataFrame) -> pd.DataFrame:
     """
-    TVL Trend (7d) will come from snapshots later.
+    - Save today's snapshot to data/snapshots/YYYY-MM-DD.csv
+    - Compute tvl_trend_7d using recent snapshots
     """
-    df = df.copy()
-    df["tvl_trend_7d"] = "—"
-    return df
+    # save snapshot for historical tracking
+    try:
+        save_today_snapshot(df)
+    except Exception:
+        # don't crash dashboard if write fails on hosted env
+        pass
+
+    # compute tvl_trend_7d
+    try:
+        df_with_trend = compute_tvl_trend_7d(df)
+        return df_with_trend
+    except Exception:
+        df = df.copy()
+        df["tvl_trend_7d"] = "—"
+        return df
+
