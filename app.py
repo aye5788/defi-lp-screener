@@ -51,15 +51,19 @@ for col in expected_cols:
 
 st.sidebar.header("Filters")
 
-# Chain filter
-all_chains = sorted(df_scored["chain"].dropna().unique().tolist())
-default_chains = all_chains  # start with everything selected
+# Chain filter (robust even if no data / missing column)
+if "chain" in df_scored.columns and not df_scored["chain"].dropna().empty:
+    all_chains = sorted(df_scored["chain"].dropna().unique().tolist())
+else:
+    all_chains = []
+
 chains_selected = st.sidebar.multiselect(
     "Chains to include",
     options=all_chains,
-    default=default_chains,
+    default=all_chains,
     help="Only show pools on these networks."
 )
+
 
 # Minimum TVL
 min_tvl = st.sidebar.number_input(
@@ -112,8 +116,9 @@ sort_choice = st.sidebar.selectbox(
 
 df_filtered = df_scored.copy()
 
-# filter by chain
-df_filtered = df_filtered[df_filtered["chain"].isin(chains_selected)]
+# filter by chain (only if we actually have chain data and user picked some)
+if "chain" in df_filtered.columns and chains_selected:
+    df_filtered = df_filtered[df_filtered["chain"].isin(chains_selected)]
 
 # filter by min TVL
 df_filtered = df_filtered[df_filtered["tvlUsd"] >= float(min_tvl)]
