@@ -31,6 +31,19 @@ df_enriched = add_trend_columns_and_snapshot(df_enriched)
 
 # 3. Add audit_status + red_flag
 df_scored = apply_risk_flags(df_enriched)
+# Safety: if somehow we ended up without expected columns, create them
+expected_cols = [
+    "chain", "project", "symbol", "tvlUsd",
+    "fee_apy", "reward_apy", "total_apy",
+    "il_risk", "audit_status", "gas_context",
+    "net_yield_after_gas", "tvl_trend_7d",
+    "red_flag", "pool_name",
+    "volume_24h_usd", "vol_to_tvl"
+]
+for col in expected_cols:
+    if col not in df_scored.columns:
+        df_scored[col] = None
+
 
 # -------------------------
 # UI CONTROLS / FILTERS
