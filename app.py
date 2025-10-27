@@ -9,6 +9,10 @@ from src import config
 from src.fetch_gas import get_eth_gas_gwei
 
 
+# -------------------------
+# PAGE SETUP
+# -------------------------
+
 st.set_page_config(
     page_title="DeFi Liquidity Pool Screener",
     layout="wide"
@@ -17,12 +21,16 @@ st.set_page_config(
 st.title("DeFi Liquidity Pool Screener")
 st.caption("Not financial advice. Yield != safety. High APY often means high risk or short-term incentives.")
 
-# Optional: show live gas so you understand 'Net Yield After Gas'
+# Show live gas so you understand why Net Yield After Gas moves
 gas_now = get_eth_gas_gwei()
 if gas_now is not None:
-    st.write(f"🧮 Current Ethereum gas: {gas_now:.1f} gwei")
+    st.write(f"📊 Current Ethereum gas: {gas_now:.1f} gwei")
 else:
-    st.write("🧮 Current Ethereum gas: (unavailable)")
+    st.write("📊 Current Ethereum gas: (unavailable)")
+
+# -------------------------
+# LOAD + ENRICH DATA
+# -------------------------
 
 # 1. Fetch raw data
 df_raw = get_yield_data()
@@ -34,12 +42,14 @@ else:
 
 # 2. Derive metrics (total_apy, il_risk, gas_context, etc.)
 df_enriched = add_basic_columns(df_raw)
+
+# 3. Add TVL trend and snapshot (best-effort, won't crash on failure)
 df_enriched = add_trend_columns_and_snapshot(df_enriched)
 
-# 3. Add audit_status + red_flag
+# 4. Add audit_status + red_flag, and other safety logic
 df_scored = apply_risk_flags(df_enriched)
 
-# 4. Safety: ensure expected columns exist even if something upstream was missing
+# 5. Safety: ensure expected columns always exist so downstream code doesn't KeyError
 expected_cols = [
     "chain",
     "project",
@@ -63,12 +73,12 @@ for col in expected_cols:
         df_scored[col] = None
 
 # -------------------------
-# UI CONTROLS / FILTERS
+# SIDEBAR FILTERS
 # -------------------------
 
 st.sidebar.header("Filters")
 
-# Chain filter (robust even if we have no data)
+# Chain filter (robust even if data is missing)
 if "chain" in df_scored.columns and not df_scored["chain"].dropna().empty:
     all_chains = sorted(df_scored["chain"].dropna().unique().tolist())
 else:
@@ -81,7 +91,7 @@ chains_selected = st.sidebar.multiselect(
     help="Only show pools on these networks."
 )
 
-# Minimum TVL
+# Minimum TVL filter
 min_tvl = st.sidebar.number_input(
     "Minimum TVL ($)",
     min_value=0,
@@ -90,13 +100,14 @@ min_tvl = st.sidebar.number_input(
     help="Hide tiny pools below this size. Bigger TVL is usually safer / less ruggy."
 )
 
-# IL risk filter
+# IL risk tolerance
 il_filter_choice = st.sidebar.selectbox(
     "Max IL Risk allowed",
     options=["Low only", "Low + Medium", "Show all"],
     index=1,
     help="Impermanent loss = if tokens move apart in price, you might bleed vs just holding them."
 )
+
 def il_allowed(il_value: str) -> bool:
     if il_filter_choice == "Show all":
         return True
@@ -106,7 +117,7 @@ def il_allowed(il_value: str) -> bool:
         return il_value == "Low"
     return True
 
-# Hide risky pools
+# Hide obvious sketch
 hide_red_flag = st.sidebar.checkbox(
     "Hide ⚠ risky pools",
     value=True,
@@ -127,7 +138,7 @@ sort_choice = st.sidebar.selectbox(
 )
 
 # -------------------------
-# APPLY FILTERS
+# APPLY FILTER LOGIC
 # -------------------------
 
 df_filtered = df_scored.copy()
@@ -144,28 +155,28 @@ if "tvlUsd" in df_filtered.columns:
 if "il_risk" in df_filtered.columns:
     df_filtered = df_filtered[df_filtered["il_risk"].apply(il_allowed)]
 
-# filter by red flag
-if "red_flag" in df_filtered.columns and hide_red_flag:
+# filter by red flag (defensive: only if column exists)
+if hide_red_flag and "red_flag" in df_filtered.columns:
     df_filtered = df_filtered[df_filtered["red_flag"].fillna("") == ""]
 
 # -------------------------
-# RENAME COLUMNS FOR DISPLAY
+# PREP COLUMNS FOR DISPLAY
 # -------------------------
 
 display_cols_raw = [
     "pool_name",            # <symbol> | <project> | <chain>
     "tvlUsd",               # TVL
-    "volume_24h_usd",       # from Uniswap subgraph for some pools
-    "vol_to_tvl",           # volume / TVL efficiency
-    "fee_apy",              # from apyBase
-    "reward_apy",           # from apyReward
-    "total_apy",            # fee_apy + reward_apy
+    "volume_24h_usd",       # 24h volume (Uniswap v3 pools only right now)
+    "vol_to_tvl",           # capital efficiency
+    "fee_apy",              # fee APY
+    "reward_apy",           # incentive APY
+    "total_apy",            # fee + reward
     "il_risk",              # Low / Medium / High
-    "audit_status",         # from risk_flags (includes exploit info if available)
+    "audit_status",         # includes exploit info where known
     "gas_context",          # Cheap gas / High gas
-    "net_yield_after_gas",  # heuristic, adjusted by live gas where possible
-    "tvl_trend_7d",         # ▲/▼ once we have ~7d snapshots
-    "red_flag",             # ⚠ if sketch
+    "net_yield_after_gas",  # APY after gas penalty
+    "tvl_trend_7d",         # ▲ or ▼ once snapshot history accumulates
+    "red_flag",             # ⚠ marker
 ]
 
 nice_names = {
@@ -184,15 +195,17 @@ nice_names = {
     "red_flag": "Red Flag",
 }
 
-# keep only columns that actually exist
+# Only keep columns that actually exist in df_filtered
 existing_display_cols = [c for c in display_cols_raw if c in df_filtered.columns]
 
+# Build df_display with nice names
 df_display = df_filtered[existing_display_cols].rename(columns=nice_names)
 
 # -------------------------
-# SORT
+# SORT ROWS
 # -------------------------
 
+# Mapping from UI sort label -> pretty column name in df_display
 sort_map = {
     "Net Yield After Gas (%)": "Net Yield After Gas (%)",
     "TVL ($)": "TVL ($)",
@@ -200,41 +213,39 @@ sort_map = {
     "Total APY (%)": "Total APY (%)",
 }
 
-# we need to map pretty names back to the internal names we just renamed to
-inverse_name_map = {v: k for k, v in nice_names.items()}
-
 sort_col_pretty = sort_map[sort_choice]  # e.g. "Net Yield After Gas (%)"
-sort_col_internal = inverse_name_map.get(sort_col_pretty, None)
 
 df_display_for_sort = df_display.copy()
 
-if sort_col_internal and sort_col_internal in df_filtered.columns:
-    # Use the numeric source column from df_filtered for sorting
-    numeric_series = pd.to_numeric(df_filtered[sort_col_internal], errors="coerce")
-    df_display_for_sort["_sort_helper"] = numeric_series.values
-else:
-    # Fallback: try to sort on the pretty column directly
+# Create a numeric helper column for sorting
+if sort_col_pretty in df_display_for_sort.columns:
     df_display_for_sort["_sort_helper"] = pd.to_numeric(
-        df_display_for_sort.get(sort_col_pretty, pd.Series(dtype=float)),
+        df_display_for_sort[sort_col_pretty].str.replace("%", "", regex=False)
+        if df_display_for_sort[sort_col_pretty].dtype == object
+        else df_display_for_sort[sort_col_pretty],
         errors="coerce"
     )
+else:
+    # fallback if somehow missing
+    df_display_for_sort["_sort_helper"] = pd.Series(dtype=float)
 
 df_display_for_sort = df_display_for_sort.sort_values(
-    "_sort_helper", ascending=False, na_position="last"
+    "_sort_helper",
+    ascending=False,
+    na_position="last"
 ).drop(columns=["_sort_helper"], errors="ignore")
 
 # -------------------------
-# FORMAT FOR DISPLAY
+# HUMAN-FRIENDLY FORMATTING
 # -------------------------
 
-# After sorting, pretty-print dollar amounts, % values, arrows, etc.
 df_display_pretty = format_for_display(df_display_for_sort)
 
-# Drop columns that are completely empty / None across all rows (pure cleanup)
+# Drop columns that are 100% empty/null after formatting
 df_display_pretty = df_display_pretty.dropna(axis=1, how="all")
 
 # -------------------------
-# RENDER
+# RENDER TABLE + EXPLANATION
 # -------------------------
 
 st.subheader("Leaderboard")
@@ -246,7 +257,7 @@ st.write(
 
 st.dataframe(
     df_display_pretty,
-    use_container_width=True,
+    width="stretch",
     hide_index=True
 )
 
@@ -258,22 +269,22 @@ st.markdown("""
   How much money is sitting in the pool. Bigger = more established, less likely to just vanish.
 
 - **Vol 24h ($) / Vol/TVL (24h)**  
-  How actively this pool is trading. Higher Vol/TVL means your liquidity gets used, so fee income is more “real,” not just bribed.
+  How actively this pool is trading. Higher Vol/TVL means your liquidity is used, so fee income is “real,” not just bribes.
 
 - **Fee APY (%)**  
-  Yield from actual trading fees. This is the “real business model” income.
+  Yield from actual swap fees. This is the sustainable part.
 
 - **Reward APY (%)**  
-  Extra incentives the protocol is throwing at LPs. This can vanish fast.
+  Extra incentives the protocol is throwing at LPs. Can disappear fast.
 
 - **Total APY (%)**  
-  Fee APY + Reward APY. Headline number, can be misleading if it's all rewards.
+  Fee APY + Reward APY. This is the headline number, but it can be fake-looking if it's all rewards.
 
 - **IL Risk**  
-  Impermanent loss danger. High IL means if the tokens move apart in price, you might bleed value vs just holding them.
+  Impermanent loss danger. High IL means if the tokens move apart in price, you might bleed vs just holding them.
 
 - **Audit / Exploit Status**  
-  Very rough safety read. “Unknown” doesn’t mean scam, but you should slow down.
+  Rough safety snapshot. “Unknown” doesn’t mean scam, but it means slow down and actually read.
 
 - **Gas Context**  
   “High gas” (Ethereum mainnet) is expensive to get in/out unless you're depositing size. “Cheap gas” (Arbitrum, Base, etc.) is friendlier for smaller deposits.
@@ -282,8 +293,8 @@ st.markdown("""
   Our rough “is this even worth it for a normal wallet” estimate, not just the pretty headline APY. This now adapts based on live Ethereum gas.
 
 - **TVL Trend (7d)**  
-  Will show ▲ or ▼ once your snapshots have ~1 week of history. Up means money is flowing in (confidence). Down means people are leaving.
+  Will show ▲ or ▼ once your snapshots have ~1 week of history. Up = money flowing in (confidence). Down = people leaving.
 
 - **Red Flag**  
-  ⚠ means slow down: maybe tiny TVL on an expensive chain, maybe yield is 100% bribes, maybe audit is unknown or exploit history.
+  ⚠ means slow down: maybe tiny TVL on an expensive chain, maybe yield is 100% bribed, maybe audit is unknown or exploit history.
 """)
